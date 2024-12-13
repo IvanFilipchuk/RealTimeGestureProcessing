@@ -1,0 +1,7 @@
+hand_images/
+processed_images/
+landmarks/
+
+*.log
+*.tmp
+*.bak
