@@ -5,3 +5,5 @@ landmarks/
 *.log
 *.tmp
 *.bak
+.idea
+.venv
