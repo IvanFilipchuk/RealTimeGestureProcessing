@@ -4,32 +4,36 @@ import numpy as np
 import os
 import csv
 
+# Inicjalizacja modułu MediaPipe Hands
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
 
+# Konfiguracja limitów i zmiennych globalnych
 MAX_SAMPLES_PER_GESTURE = 15
 gesture_counter = 0
 samples_collected = {}
 current_gesture = None
-BBOX_MARGIN = 20
+BBOX_MARGIN = 20 # Margines dla wyciętego obrazu dłoni
 
 landmark_history = []
 STABILIZATION_WINDOW = 5
 
 
+# Tworzenie struktury folderów dla przechowywania danych gestów
 def create_gesture_directory(gesture_name):
     os.makedirs(f"hand_images/{gesture_name}", exist_ok=True)
     os.makedirs(f"processed_images/{gesture_name}/binary", exist_ok=True)
     os.makedirs(f"processed_images/{gesture_name}/edges", exist_ok=True)
+    os.makedirs(f"processed_images/{gesture_name}/dilated", exist_ok=True)
     os.makedirs(f"processed_images/{gesture_name}/eroded", exist_ok=True)
     os.makedirs(f"landmarks/{gesture_name}", exist_ok=True)
 
-
+# Funkcja obliczająca odległość między dwoma punktami
 def calculate_distance(point1, point2):
     return np.sqrt((point1.x - point2.x) ** 2 + (point1.y - point2.y) ** 2)
 
-
+# Stabilizacja punktów charakterystycznych dłoni uśrednianie ostatnich klatek
 def stabilize_landmarks(hand_landmarks):
     global landmark_history
     landmark_array = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark])
@@ -41,7 +45,7 @@ def stabilize_landmarks(hand_landmarks):
     smoothed_landmarks = np.mean(landmark_history, axis=0)
     return smoothed_landmarks
 
-
+# Funkcja klasyfikująca gesty na podstawie pozycji punktów charakterystycznych
 def classify_gesture(hand_landmarks):
     thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
     index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
@@ -57,12 +61,14 @@ def classify_gesture(hand_landmarks):
     thumb_ip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_IP]
     wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
 
+    # Zdefiniowanie funkcji pomocniczych
     def is_finger_bent(tip, pip):
         return tip.y > pip.y
 
     def is_finger_straight(tip, pip):
         return tip.y < pip.y
 
+    # Logika klasyfikacji gestów
     finger_status = {
         "thumb": is_finger_straight(thumb_tip, thumb_ip),
         "index": is_finger_straight(index_tip, index_pip),
@@ -109,21 +115,24 @@ def classify_gesture(hand_landmarks):
     # Domyślnie: Nieznany gest
     return "Unknown Gesture"
 
-
+# Funkcja przetwarzająca obraz dłoni (binaryzacja, krawędzie, morfologia)
 def classical_image_processing(hand_image, gesture, sample_index):
-    gray = cv2.cvtColor(hand_image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    edges = cv2.Canny(binary, 100, 200)
-    kernel = np.ones((3, 3), np.uint8)
-    dilated = cv2.dilate(binary, kernel, iterations=1)
-    eroded = cv2.erode(dilated, kernel, iterations=1)
+    gray = cv2.cvtColor(hand_image, cv2.COLOR_BGR2GRAY) # Konwersja na skalę szarości
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0) # Redukcja szumów
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU) # Binaryzacja Otsu
+    edges = cv2.Canny(binary, 100, 200) # Wykrywanie krawędzi
+    kernel = np.ones((3, 3), np.uint8) # Tworzenie kernela
+    dilated = cv2.dilate(binary, kernel, iterations=1)  # Dylacja
+    eroded = cv2.erode(dilated, kernel, iterations=1) # Erozja
 
+    # Zapis przetworzonych obrazów
     cv2.imwrite(f"processed_images/{gesture}/binary/binary_{sample_index}.png", binary)
     cv2.imwrite(f"processed_images/{gesture}/edges/edges_{sample_index}.png", edges)
+    cv2.imwrite(f"processed_images/{gesture}/dilated/dilated_{sample_index}.png", dilated)
     cv2.imwrite(f"processed_images/{gesture}/eroded/eroded_{sample_index}.png", eroded)
 
 
+# Zapis punktów charakterystycznych do pliku CSV
 def save_landmarks_to_csv(gesture, sample_index, hand_landmarks):
     with open(f"landmarks/{gesture}/frame_{sample_index}.csv", 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
@@ -131,9 +140,8 @@ def save_landmarks_to_csv(gesture, sample_index, hand_landmarks):
         for lm in hand_landmarks.landmark:
             writer.writerow([lm.x, lm.y, lm.z])
 
-
-cap = cv2.VideoCapture(0)
-
+# Główna pętla programu
+cap = cv2.VideoCapture(0)  #Pobranie obrazu z kamery
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
